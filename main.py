@@ -26,8 +26,8 @@ mask_m = face_mask_extraction(img_m,'m')
 mask_r = face_mask_extraction(img_r,'r')
 mask_l = face_mask_extraction(img_l,'l')
 
-
-
+## Stereo Rectification
+# Rectify face images
 
 %% Stereo Rectification 
 %--------------------------m-r pair--------------------------------
