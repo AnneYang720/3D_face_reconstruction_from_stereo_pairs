@@ -26,3 +26,9 @@ def face_mask_extraction(img):
     labeled_pixels = cv2.morphologyEx(labeled_pixels, cv2.MORPH_CLOSE, kernel) #去掉前景中的噪点
 
     return labeled_pixels
+
+def interF (dispartity_ref,disparityMapBM,mask_middle,features_m,disp_FP,disparity_feature_points, ... 
+    disparityRange, thDisp,face_lower_th,face_upper_th):
+    win_size=199 #size of the mask which is used for Gaussian kernels
+    w=20  #(2*w+1) is the size of the mask which is used for interpolation
+    
