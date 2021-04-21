@@ -4,28 +4,22 @@ import os
 from utils import face_mask_extraction, interF
 from scipy.signal import medfilt2d
 
-# Load camera params
-stereoParams_mr = np.load('./stereoParams_mr.npy') 
-stereoParams_ml = np.load('./stereoParams_ml.npy') 
-
 # Subject name and image pair
-sName = '2'
 pNamme = '1'
 
 # Read facial feature points 
-features_m = np.load(os.path.join('./s',sName,'/m',pNamme,'.csv'))
-features_r = np.load(os.path.join('./s',sName,'/r',pNamme,'.csv'))
-features_l = np.load(os.path.join('./s',sName,'/l',pNamme,'.csv'))
+features_r = np.load(os.path.join('./feature','/r',pNamme,'.csv'))
+features_l = np.load(os.path.join('./feature','/l',pNamme,'.csv'))
 
 # Read images
-img_m = cv2.imread(os.path.join('./s',sName,'/subject',sName,'_Middle_',pNamme,'_e1.png'))
-img_r = cv2.imread(os.path.join('./s',sName,'/subject',sName,'_Right_',pNamme,'_e.png'))
-img_l = cv2.imread(os.path.join('./s',sName,'/subject',sName,'_Left_',pNamme,'_e.png'))
+img_r = cv2.imread(os.path.join('./pic','/right_',pNamme,'_e.png'))
+img_l = cv2.imread(os.path.join('./pic','/left_',pNamme,'_e.png'))
 
-# Face Segmentation 
-mask_m = face_mask_extraction(img_m,'m')
+# 2 Face Segmentation 
 mask_r = face_mask_extraction(img_r,'r')
 mask_l = face_mask_extraction(img_l,'l')
+img_r = img_r * mask_r
+img_l = img_l * mask_l
 
 ## Stereo Rectification
 # stereo map
@@ -47,50 +41,33 @@ right_map1, right_map2 = cv2.initUndistortRectifyMap(right_camera_matrix, right_
 # 根据更正map对图片进行重构
 img_l_rec = cv2.remap(img_l, left_map1, left_map2, cv2.INTER_LINEAR)
 img_r_rec = cv2.remap(img_r, right_map1, right_map2, cv2.INTER_LINEAR)
-img_m_rec = cv2.remap(img_m, left_map1, left_map2, cv2.INTER_LINEAR)
-mask_l_rec = cv2.remap(mask_l, left_map1, left_map2, cv2.INTER_LINEAR)
-mask_r_rec = cv2.remap(mask_r, left_map1, left_map2, cv2.INTER_LINEAR)
-mask_m_rec = cv2.remap(mask_m, left_map1, left_map2, cv2.INTER_LINEAR)
 
-## Facial Feature Points 
-xydif = np.abs(features_m-features_r)
-disparity_feature_points1 = np.sqrt(np.power(xydif[:,1],2) + np.power(xydif[:,2],2))
-xydif = np.abs(features_m-features_l)
-disparity_feature_points2 = -np.sqrt(np.power(xydif[:,1],2) + np.power(xydif[:,2],2))
-max_disp_FP = round(np.max(disparity_feature_points1))
-min_disp_FP = round(np.min(disparity_feature_points1))
-max_disp_FP2 = round(np.max(disparity_feature_points2))
-min_disp_FP2 = round(np.min(disparity_feature_points2))
+
+## 6 Sparse Disparity Map
+# Euclidean Distance of Facial Feature Points 
+xydif = np.abs(features_r-features_l)
+disparity_feature_points = np.sqrt(np.power(xydif[:,1],2) + np.power(xydif[:,2],2))
+max_disp_FP = round(np.max(disparity_feature_points))
+min_disp_FP = round(np.min(disparity_feature_points))
 
 # Disparty map for facial feature points
-disp_FP = np.zeros(img_m_rec.shape[0],img_m_rec.shape[0])
-disp_FP2 = np.zeros(img_m_rec.shape[0],img_m_rec.shape[0])
+disp_FP = np.zeros(img_l_rec.shape[0],img_l_rec.shape[0])
 for i in range(68):
-    disp_FP[features_m[i,0],features_m[i,1]] = disparity_feature_points1[i]
-    disp_FP[features_m[i,0],features_m[i,1]] = disparity_feature_points2[i]
+    disp_FP[features_l[i,0],features_l[i,1]] = disparity_feature_points[i]
 
 # Determine disparity ranges according to featrue points disparities
 disparityRange = np.array([max_disp_FP,min_disp_FP])
-disparityRange2 = np.array([max_disp_FP2,min_disp_FP2])
 
-## Disparity MAP
+
+## 7 Dense Disparity MAP
 # Convert RGB image gray-level image
-gray_img_m = cv2.cvtColor(img_m_rec, cv2.COLOR_BGR2GRAY)
 gray_img_l = cv2.cvtColor(img_l_rec, cv2.COLOR_BGR2GRAY)
 gray_img_r = cv2.cvtColor(img_r_rec, cv2.COLOR_BGR2GRAY)
 
-## Image smoothing
+# Image smoothing
 h = cv2.getGaussianKernel(5, 1)
-gray_img_m = cv2.filter2D(gray_img_m, -1, h ,borderType=cv2.BORDER_CONSTANT)
 gray_img_l = cv2.filter2D(gray_img_l, -1, h ,borderType=cv2.BORDER_CONSTANT)
 gray_img_r = cv2.filter2D(gray_img_r, -1, h ,borderType=cv2.BORDER_CONSTANT)
-
-# Disparity PARAMS
-bs = 15        #defauld bs=15
-cTH = 0.7      #default 0.5
-uTH = 15       #default 15
-tTH = 0.0000   #default 0.0002 only applies if method is blockmatching
-dTH = 15       #default []
 
 #--------------------------l-r pair-------------------------------------
 num = cv2.getTrackbarPos("num", "depth")
@@ -101,20 +78,19 @@ disparityMap = stereoSGBM.compute(gray_img_l, gray_img_r)
 
 ## Unreliable Points
 unreliable = disparityMap < -1e+12
-unreliable = unreliable | (1-mask_m_rec)
 
 # Get rid of unrelible pixels
 dispartity_ref = disparityMap*(1-unreliable)
 
-## Get rid of unrelible pixels usnig feature points and interpolation
-face_lower_th = 20
-face_upper_th = 100
-thDisp1 = 15
-disp_int, disp_int_only_face = interF (dispartity_ref,disparityMapBM,mask_m_rec, features_m, 
-            disp_FP,disparity_feature_points1, disparityRange, thDisp1,face_lower_th,face_upper_th)
+# ## Get rid of unrelible pixels usnig feature points and interpolation
+# face_lower_th = 20
+# face_upper_th = 100
+# thDisp1 = 15
+# disp_int, disp_int_only_face = interF (dispartity_ref,disparityMapBM,mask_m_rec, features_m, 
+#             disp_FP,disparity_feature_points, disparityRange, thDisp1,face_lower_th,face_upper_th)
 
 ## Median filtering
-dsp = disp_int
+dsp = dispartity_ref # = disp_int
 dsp_med_filt = medfilt2d(dsp,[50,50])
 unreliable_out = 1-(dsp_med_filt!=0)
 
@@ -126,10 +102,10 @@ dsp_gauss = cv2.filter2D(dsp_med_filt, -1, h)
 #Reproject points into 3D
 xyzPoints = cv2.reprojectImageTo3D(dsp_gauss, Q)
 
-## Generate 3D face meshes
+# ## Generate 3D face meshes
 
-mesh_create_func( img_middle_rec, dsp_gauss1, xyzPoints1, unreliable_out1);
-mesh_create_func( img_middle_rec2, dsp_gauss2, xyzPoints2, unreliable_out2);
+# mesh_create_func( img_middle_rec, dsp_gauss1, xyzPoints1, unreliable_out1);
+# mesh_create_func( img_middle_rec2, dsp_gauss2, xyzPoints2, unreliable_out2);
 
 
 
